@@ -1,0 +1,150 @@
+Singleton em Java — Resumo + Impactos + Referências
+
+==================================================
+RESUMO RÁPIDO: O QUE É O SINGLETON
+--------------------------------------------------
+É um padrão que garante uma única instância de uma classe em todo o processo e fornece um ponto global de acesso a ela. 
+Poeticamente: um “sol” no seu sistema — único, luminoso… e, se mal posicionado, ofuscante.
+
+ESTRUTURA / COMO IMPLEMENTAR (JAVA)
+--------------------------------------------------
+1) Eager (simples e thread-safe por natureza)
+   public final class Config {
+     private static final Config INSTANCE = new Config();
+     private Config() {}
+     public static Config getInstance() { return INSTANCE; }
+   }
+
+2) Lazy com sincronização
+   public final class Config {
+     private static Config instance;
+     private Config() {}
+     public static synchronized Config getInstance() {
+       if (instance == null) instance = new Config();
+       return instance;
+     }
+   }
+
+3) Double-Checked Locking (DCL) com volatile (Java 5+)
+   public final class Config {
+     private static volatile Config instance;
+     private Config() {}
+     public static Config getInstance() {
+       Config local = instance;
+       if (local == null) {
+         synchronized (Config.class) {
+           local = instance;
+           if (local == null) instance = local = new Config();
+         }
+       }
+       return local;
+     }
+   }
+
+4) Enum (recomendado pelo Bloch — simples, seguro e à prova de serialização/reflection)
+   public enum Config {
+     INSTANCE;
+     // métodos...
+   }
+
+QUANDO USAR (COM CRITÉRIO)
+--------------------------------------------------
+- Há uma única fonte de verdade legítima (p.ex., um registry de plugins, um clock/fábrica de IDs que pode ser injetado, preferencialmente).
+- Estado mínimo/imutável; ou serviço sem estado (stateless).
+- Custo alto de criação que precisa ser único (mas pense antes em DI/containers).
+- Componentes de infraestrutura que o container já trataria como singleton (em Spring, guarde o “singleton” para o container e não para sua classe).
+
+VANTAGENS (SEM ROMANTIZAR)
+--------------------------------------------------
+- Garantia de uma única instância.
+- Pode reduzir custo de criação/overhead quando de fato só deve existir um.
+- Ponto único de configuração/coordenação (se for essencial e bem isolado).
+- Versão enum: solução elegante para serialização, reflection e thread-safety.
+
+==================================================
+1) POSSÍVEIS PROBLEMAS DE COMPATIBILIDADE COM OUTROS DESIGN PATTERNS
+--------------------------------------------------
+- Dependency Injection / Inversion of Control (IoC):
+  O singleton “hard-coded” (getInstance()) conflita com DI porque esconde dependências e dificulta substituições/mocks. 
+  Containers (Spring/Guice) já resolvem “escopo singleton” melhor e de forma configurável.
+
+- Factory / Abstract Factory / Strategy:
+  Singletons concretos acoplam clientes a uma implementação específica, minando fábricas/estratégias que deveriam alternar comportamentos. 
+  Ex.: Strategy perde flexibilidade se o Strategy em uso for um Singleton “fixo”.
+
+- Observer / Event Bus:
+  Um “bus” global singleton vira um atalho que incentiva acoplamento implícito e ordem de inicialização frágil (efeito borboleta em eventos).
+
+- State / Command:
+  Estado compartilhado global por Singletons pode introduzir interações invisíveis entre comandos/estados, gerando bugs não determinísticos.
+
+- Template Method / Bridge / Decorator:
+  Se o “gancho” ou implementação dependem de singletons concretos, você mata a extensibilidade dinâmica prometida por esses padrões.
+
+- Testing/Mocking Patterns:
+  Singletons atritam com Test Double, Spy e Mock Objects — especialmente quando mantêm estado ou recursos.
+
+Moral: Singleton tende a “furar” a fronteira de injeção e a congelar pontos de variação que outros padrões tentam abrir.
+
+==================================================
+2) IMPACTO DO USO DE SINGLETON EM TESTES UNITÁRIOS
+--------------------------------------------------
+- Estado Global Persistente:
+  O “vazamento” de estado entre testes gera interdependência e flakiness. Teste A mexe no singleton; Teste B falha “do nada”.
+
+- Dificuldade de Mock:
+  getInstance() embute a criação e bloqueia injeção de dublês. Você acaba usando PowerMock/reflection ou “reset hooks” feios.
+
+- Ordem de Execução Importa (e não deveria):
+  Testes passam em isolamento, quebram na suíte inteira. O relógio do caos bate.
+
+- Paralelismo Comprometido:
+  Concorrência + estado global = corrida. O custo para sincronizar adequadamente é alto e polui o design.
+
+Boas práticas para mitigar:
+  - Prefira DI (construtor/parâmetro) e deixe o container fornecer instâncias “singleton”.
+  - Se não der, exponha interfaces e permita “setters” de fábrica (apenas em ambiente de teste).
+  - Faça reset explícito do singleton nos @Before/@After (a contragosto).
+  - Minimize/elimine estado mutável no singleton; torne-o stateless e puro quando possível.
+
+==================================================
+3) IMPACTO NO ACOPLAMENTO
+--------------------------------------------------
+- Aumento de Acoplamento Concreto:
+  Chamadas diretas a MinhaCoisa.getInstance() vinculam clientes à classe concreta. Trocar implementação dói.
+
+- Dependências Ocultas:
+  O método está disponível “de qualquer lugar”, criando “tentáculos invisíveis”. A arquitetura parece coesa, mas é dependente de um deus-objeto.
+
+- Diminuição de Coesão e Reuso:
+  Módulos passam a “saber demais” sobre a existência de um ponto global. Reuso em outro contexto pede cirurgias.
+
+- Ciclo de Vida Engessado:
+  Você perde controle fino de inicialização/destruição, importante para recursos (conexões, threads, buffers).
+
+Truque mental:
+  “Se eu consigo injetar, não singletonizo”. Se ainda parece “precisar” de singleton, talvez ele seja um serviço de infraestrutura que o container deve gerenciar.
+
+==================================================
+DICAS PRÁTICAS (EM 30 SEGUNDOS)
+--------------------------------------------------
+- Precisa MESMO de 1 instância? Use enum singleton ou deixe o container (Spring) gerenciar o escopo singleton.
+- Evite estado mutável. Se precisar, documente invariantes e forneça reset para testes (com muita parcimônia).
+- Exponha interfaces. Faça clientes dependerem de abstrações, não de getInstance().
+- Se bater conflito com Strategy/Factory/DI: remova getInstance() e injete a dependência.
+
+==================================================
+REFERÊNCIAS (USADAS PARA FUNDAMENTAR AS RESPOSTAS)
+--------------------------------------------------
+1) Erich Gamma, Richard Helm, Ralph Johnson, John Vlissides. “Design Patterns: Elements of Reusable Object-Oriented Software.” Addison-Wesley, 1994. (Cap. Singleton)
+2) Joshua Bloch. “Effective Java” (3rd Edition). Addison-Wesley, 2018. (Item “Enforce the singleton property with a private constructor or an enum type”; itens sobre dependências e testabilidade)
+3) Brian Goetz et al. “Java Concurrency in Practice.” Addison-Wesley, 2006. (DCL correto com volatile; efeitos de concorrência)
+4) Martin Fowler. “Inversion of Control Containers and the Dependency Injection pattern.” martinfowler.com, 2004. (DI vs. singletons globais; controle de ciclo de vida)
+5) Gerard Meszaros. “xUnit Test Patterns: Refactoring Test Code.” Addison-Wesley, 2007. (Global State, Test Smells, Hard-to-Test Code)
+6) Michael Feathers. “Working Effectively with Legacy Code.” Prentice Hall, 2004. (Costura de dependências e como quebrar acoplamento a singletons)
+7) Oracle. “The Java Language Specification” (edições Java 5+). (Semântica de volatile/happens-before, necessário para DCL)
+
+==================================================
+FECHO LIGEIRO
+--------------------------------------------------
+Singleton é faca de chef: corta lindo quando precisa, mas não é colher de pau pra mexer tudo. Use com respeito, injete quando der, e seu código canta afinado.

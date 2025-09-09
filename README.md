@@ -1,5 +1,3 @@
-# padroes-projeto
-
 
 # 📘 Padrões de Projeto – Resumo de Estudos
 
